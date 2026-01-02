@@ -1,0 +1,116 @@
+@startuml pdf-to-md-with-images-seq
+
+actor User
+participant "CLI" as CLI
+participant "轉換引擎" as Engine
+participant "PDF 解析器" as PDF
+participant "AI (Gemini)" as AI
+database "outputs/ 目錄（FS）" as FS
+
+note over CLI
+使用者提供：
+- 透過 CLI 參數輸入 PDF 路徑
+- 可選的輸出目錄
+- 可選的模型（預設：GEMINI_MODEL=gemini-3-pro-preview）
+- 可選：--parse-only（只產出 PDF 解析結果，供檢查）
+- 可選：--from-parse <path>（直接以解析產出作為輸入，進行轉換）
+end note
+
+note over PDF
+實作方案：
+- 使用 PyMuPDF（fitz）
+- 圖片提取可直接用 PyMuPDF：
+  - page.get_images(full=true) 取得 xref
+  - doc.extract_image(xref) 取得 image bytes + ext + width/height 等
+end note
+
+note over Engine
+轉換引擎負責：
+- 協調 PDF 解析、圖片提取與 AI 轉換
+- 將 PDF 內容轉換為 Markdown 格式
+- Phase 2：僅將「文字區塊」交給 AI 轉換為 Markdown
+- Phase 2：依據 parse_result.json 在正確位置嵌入圖片路徑到 Markdown
+end note
+
+note over Engine
+專案約定：
+- 使用 uv 管理專案
+- 使用 .venv / .env / git / gitignore
+- 代碼都放在 src/
+- 中間產出與最後產出都放在 outputDir/（預設：outputs/）
+- 寫 log 到 outputDir/logs/
+- PDF 解析產出放在 outputDir/parsed/
+- 圖片檔案放在 outputDir/images/
+end note
+
+== Phase 1：PDF 解析與可檢查的中間產出 ==
+
+User -> CLI: 執行命令並帶參數\n（例如：--input /path/file.pdf）
+CLI -> Engine: parseArgs()\n驗證輸入是否存在
+
+Engine -> PDF: open(pdfPath)
+PDF --> Engine: doc
+Engine -> PDF: parsePdf(doc)\nReturn parseResult（依順序排列的 blocks：textBlock / imageBlock）
+
+note over Engine
+Phase 1 的圖片處理：
+- 會在 Phase 1 提取圖片並寫出獨立圖片檔（outputDir/images/<uuid>.png|jpg）
+- parse_result.json 會記錄每個 block：
+  - blockIndex：順序（最終 Markdown 以此上下順序呈現）
+  - type=text：文字內容
+  - type=image：imageRef（例如：xref）+ imagePath
+end note
+
+loop 依 blockIndex 順序處理 blocks
+  alt imageBlock
+    Engine -> PDF: extractImage(imageRef)\n（回傳二進位資料 + 元資料）
+    PDF --> Engine: imageBytes + imageMeta
+    Engine -> FS: 寫入檔案\n(outputDir/images/<uuid>.png|jpg)
+    FS --> Engine: imagePath（基於 UUID）
+    Engine -> Engine: updateParseResultImagePath(parseResult, blockIndex, imagePath)
+  else textBlock
+    Engine -> Engine: keepTextBlock(parseResult, blockIndex)
+  end
+end
+
+Engine -> FS: 寫入 PDF 解析產出\n(outputDir/parsed/parse_result.json)
+FS --> Engine: parseOutputPath
+
+Engine --> CLI: printParseOutputPath(parseOutputPath)
+CLI --> User: 顯示 parseOutputPath\n提示先檢查解析結果
+
+== Phase 2：以解析產出作為輸入，轉換 Markdown（含圖片） ==
+
+User -> CLI: 確認繼續 / 再次執行第二階段\n（例如：--from-parse outputs/parsed/parse_result.json）
+CLI -> Engine: convertToMarkdown(parseInputPath, outputDir, model)
+
+Engine -> FS: 讀取解析產出\n(parseInputPath)
+FS --> Engine: parseResult
+
+loop 依 blockIndex 順序處理 blocks
+  alt textBlock
+    Engine -> AI: generateMarkdown(text, model)
+    AI --> Engine: mdChunk（文字 Markdown）
+    Engine -> Engine: appendMarkdown(mdChunk)
+  else imageBlock
+    Engine -> Engine: renderImageMarkdown(imagePath)\n（imagePath 來自 parse_result.json）
+    Engine -> Engine: appendMarkdown(imageMd)
+  end
+end
+
+Engine -> FS: 寫入 Markdown 檔案\n(outputDir/output.md)
+FS --> Engine: 完成
+
+Engine --> CLI: exit 0 + 輸出路徑\n(outputDir/output.md, outputDir/images/, outputDir/logs/)
+CLI --> User: 顯示成功訊息
+
+note over FS
+產出檔案：
+- outputDir/output.md
+- outputDir/parsed/parse_result.json
+- outputDir/images/（檔名為 UUID）
+- outputDir/logs/
+end note
+
+@enduml
+

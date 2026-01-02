@@ -1,0 +1,5 @@
+.env*
+!.env.example
+.cursor/
+.cursor/rules/_global
+!.cursor/rules/
