@@ -1,5 +1,41 @@
 .env*
 !.env.example
-.cursor/
-.cursor/rules/_global
-!.cursor/rules/
+.cursor/*
+.cursor/rules/*
+!.cursor/rules/teams/
+!.cursor/rules/teams/**
+output*
+.roo/*
+.roo
+test_data/*
+!test_data/placehodler.md
+
+# Python caches / bytecode
+__pycache__/
+*.py[cod]
+*$py.class
+
+# Virtual environments
+.venv/
+venv/
+.env/
+
+# Build artifacts
+build/
+dist/
+*.egg-info/
+
+# Test / coverage outputs
+.pytest_cache/
+.coverage
+coverage.xml
+htmlcov/
+
+# Type checker / linter caches
+.mypy_cache/
+.ruff_cache/
+
+# IDE / OS files
+.DS_Store
+.idea/
+.vscode/

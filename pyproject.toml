@@ -1,0 +1,28 @@
+[project]
+name = "poc-pdf-to-md"
+version = "0.1.0"
+description = "PDF to Markdown converter with image extraction and AI assistance"
+requires-python = ">=3.14.0"
+dependencies = [
+    "pymupdf>=1.24.0",
+    "python-dotenv>=1.0.0",
+    "google-genai>=1.56.0",
+]
+[project.scripts]
+poc-pdf-to-md = "poc_pdf_to_md.cli:main"
+
+[build-system]
+requires = ["hatchling"]
+build-backend = "hatchling.build"
+
+[tool.uv]
+dev-dependencies = [
+    "pytest>=8.0.0",
+]
+
+[tool.pytest.ini_options]
+filterwarnings = [
+    "ignore:builtin type SwigPyPacked has no __module__ attribute:DeprecationWarning",
+    "ignore:builtin type SwigPyObject has no __module__ attribute:DeprecationWarning",
+    "ignore:builtin type swigvarlink has no __module__ attribute:DeprecationWarning",
+]

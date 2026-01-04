@@ -1,0 +1,100 @@
+@startuml cd_pdf_to_md
+
+' 顏色配置
+!$BGCOLOR = "#2B2B2B"
+!$FONTCOLOR = "#A9B7C6"
+!$SUCCESSCOLOR = "#50FA7B"
+!$NORMALCOLOR = "#FFFFFF"
+!$NOTECOLOR = "#FFFACD"
+!$NOTEFONTCOLOR = "#000000"
+!$CLASSCOLOR = "#21222C"
+!$BORDERCOLOR = "#BD93F9"
+!$NEWCOLOR = "#50FA7B"
+!$GRAYCOLOR = "#4B4B4B"
+
+skinparam backgroundColor $BGCOLOR
+skinparam defaultFontColor $FONTCOLOR
+skinparam classBackgroundColor $CLASSCOLOR
+skinparam classBorderColor $BORDERCOLOR
+skinparam classArrowColor $FONTCOLOR
+skinparam noteBackgroundColor $NOTECOLOR
+skinparam noteBorderColor $FONTCOLOR
+
+package "src.poc_pdf_to_md" {
+
+    class CLI <<Module>> {
+        + main() : None
+        + parse_args() : Namespace
+        + get_model_name(args) : str
+        + print_parse_output_path(path) : None
+        + print_success_message(md_path, img_dir, log_dir) : None
+    }
+
+    class Engine <<Module>> {
+        - _PROGRESS_UPDATE_INTERVAL_SEC : float
+        + phase1_parse_pdf(pdf_path, output_dir, overwrite) : Path
+        + convert_to_markdown(parse_input_path, output_dir, model, prompt_file) : Path
+        - _process_single_page(page, idx, total, output_dir, state, lock, model, prompt, progress) : str
+        - _build_pages_input(parse_result, output_dir) : List[Dict]
+        - _build_page_prompt(...) : str
+        - _build_recitation_safe_prompt(prompt_text) : str
+        - _load_phase2_state(output_dir) : Dict
+        - _save_phase2_state(output_dir, state) : None
+    }
+
+    class PDFParser <<Module>> {
+        + open_pdf(pdf_path) : Document
+        + parse_pdf(doc, progress_cb) : List[Dict]
+        + extract_image(doc, xref) : Tuple[bytes, Dict]
+        + render_page_as_image(page, zoom) : Tuple[bytes, Dict]
+    }
+
+    class ImageHandler <<Module>> {
+        + generate_image_filename(ext) : str
+        + generate_page_image_filename(page_number, ext) : str
+        + save_image(image_bytes, output_dir, filename, overwrite) : Path
+        + update_parse_result_image_path(parse_result, block_index, image_path) : None
+    }
+
+    class ParseResult <<Module>> {
+        + create_parse_result(source_pdf, total_pages, blocks) : Dict
+        + save_parse_result(parse_result, output_dir, overwrite) : Path
+        + load_parse_result(parse_input_path) : Dict
+        + validate_schema_version(parse_result) : bool
+        + validate_block_index_order(parse_result) : bool
+    }
+
+    class GeminiClient <<Module>> {
+        + generate_page_markdown(prompt_text, page_image_path, model, config) : str
+        - _get_api_key() : str
+        - _summarize_genai_response(resp) : str
+    }
+
+    class _ProgressPrinter <<Class>> {
+        - _stream : IO
+        - _is_tty : bool
+        - _lock : Lock
+        + update(line) : None
+        + finish(line) : None
+    }
+
+}
+
+' Relationships
+CLI ..> Engine : 呼叫 (Calls)
+Engine ..> PDFParser : 使用 (Uses)
+Engine ..> ImageHandler : 使用 (Uses)
+Engine ..> ParseResult : 使用 (Uses)
+Engine ..> GeminiClient : 使用 (Uses)
+Engine ..> _ProgressPrinter : 使用 (Uses)
+
+note "CLI\n\n--\n程式進入點\n處理參數與輸出顯示" as N_CLI
+CLI .. N_CLI
+
+note "Engine\n\n--\n核心業務邏輯\n協調 Phase 1 解析與 Phase 2 轉換\n管理並行處理與狀態續跑" as N_Engine
+Engine .. N_Engine
+
+note "GeminiClient\n\n--\n封裝 Google GenAI SDK\n處理 multimodal 請求" as N_Client
+GeminiClient .. N_Client
+
+@enduml

@@ -5,111 +5,201 @@ participant "CLI" as CLI
 participant "轉換引擎" as Engine
 participant "PDF 解析器" as PDF
 participant "AI (Gemini)" as AI
-database "outputs/ 目錄（FS）" as FS
+database "output/ 目錄（FS）" as FS
 
 note over CLI
 使用者提供：
 - 透過 CLI 參數輸入 PDF 路徑
 - 可選的輸出目錄
-- 可選的模型（預設：GEMINI_MODEL=gemini-3-pro-preview）
-- 可選：--parse-only（只產出 PDF 解析結果，供檢查）
-- 可選：--from-parse <path>（直接以解析產出作為輸入，進行轉換）
+- 可選的模型（優先序：--model > GEMINI_MODEL 環境變數 > 預設值 gemini-3-pro-preview）
+- 可選：--parse-only（只產出 PDF 解析結果，供檢查，與 --from-parse 互斥）
+- 可選：--from-parse <path>（直接以解析產出作為輸入，進行轉換，與 --parse-only 互斥）
+- 可選：--prompt-file <path>（Phase 2 提示詞模板，預設 prompts/phase2_page_to_md.md）
+- 可選：--overwrite（清空 outputDir 下既有 parsed/、images/、logs/ 與 output_*.md；預設關閉，反覆開發時可開啟）
+  - 注意：目前 **不會** 清空 outputDir/phase2/（Phase 2 的 per-page 快取與 state）
 end note
 
 note over PDF
 實作方案：
 - 使用 PyMuPDF（fitz）
-- 圖片提取可直接用 PyMuPDF：
+- 每頁渲染為完整 PNG 圖片：
+  - fitz.Matrix(zoom, zoom) + page.get_pixmap(matrix=mat) 渲染整頁為 PNG
+  - 檔名格式：page_<page_index:04d>.png（使用 0-based page_index 作為後綴）
+- 嵌入圖片提取：
   - page.get_images(full=true) 取得 xref
   - doc.extract_image(xref) 取得 image bytes + ext + width/height 等
+- 文字區塊不處理（不提取文字內容）
 end note
 
 note over Engine
 轉換引擎負責：
 - 協調 PDF 解析、圖片提取與 AI 轉換
 - 將 PDF 內容轉換為 Markdown 格式
-- Phase 2：僅將「文字區塊」交給 AI 轉換為 Markdown
-- Phase 2：依據 parse_result.json 在正確位置嵌入圖片路徑到 Markdown
+- Phase 1：渲染每頁為完整 PNG 圖片（page_<page_index:04d>.png）
+- Phase 1：提取每頁的嵌入圖片
+- Phase 2：以 page 為單位呼叫 AI（multimodal：提示詞文字 + 本頁 page PNG）
+  - 提示詞末尾會附上本頁 JSON（page_image_path、embedded_images_meta、page_parse_dict）
+  - embedded images **不會** 以圖片二進位資料另行傳給模型（僅提供路徑/座標等資訊）
+  - 會把每頁 Markdown 存到 outputDir/phase2/pages/page_<page_index:04d>.md，並寫入 outputDir/phase2/state.json 以支援續跑
+  - 若偵測到 page_<page_index:04d>.md 已存在，則視為 cache hit，直接讀取並跳過 AI 呼叫
+  - 若遇到 RECITATION（逐字轉錄/版權）阻擋，會改用「安全模式」提示詞 **重試一次**
 end note
-
+ 
 note over Engine
 專案約定：
 - 使用 uv 管理專案
 - 使用 .venv / .env / git / gitignore
 - 代碼都放在 src/
-- 中間產出與最後產出都放在 outputDir/（預設：outputs/）
-- 寫 log 到 outputDir/logs/
+- 中間產出與最後產出都放在 outputDir/（預設：output/）
+- 目前未寫 log（預留 outputDir/logs/；CLI 在 --overwrite 時會清空該目錄）
 - PDF 解析產出放在 outputDir/parsed/
+  - overwrite=true：parse_result.json
+  - overwrite=false：parse_result_<timestamp>.json
 - 圖片檔案放在 outputDir/images/
+  - 頁面圖片：page_<page_index:04d>.png（使用 0-based page_index 作為後綴）
+  - 嵌入圖片：<uuid>.png|jpg（使用 UUID 避免檔名衝突）
+- Markdown 輸出放在 outputDir/（檔名：output_<timestamp>.md）
+- 解析結果與嵌入圖片檔名使用時間戳或 UUID 避免檔名衝突；頁面圖片使用固定檔名（page_<page_index:04d>.png）
+end note
+
+note over CLI
+測試資料：
+- 可使用 test_data/test_data.pdf
 end note
 
 == Phase 1：PDF 解析與可檢查的中間產出 ==
 
-User -> CLI: 執行命令並帶參數\n（例如：--input /path/file.pdf）
-CLI -> Engine: parseArgs()\n驗證輸入是否存在
+User -> CLI: 執行命令並帶參數\n（例如：--input /path/file.pdf --overwrite）
+CLI -> Engine: parseArgs()\n驗證輸入是否存在\n驗證參數互斥（--parse-only 與 --from-parse）\n處理 --overwrite 參數
+
+alt 參數驗證失敗（程式直接結束）
+  CLI --> User: 顯示錯誤訊息（stderr）\nexit 1
+end
 
 Engine -> PDF: open(pdfPath)
 PDF --> Engine: doc
-Engine -> PDF: parsePdf(doc)\nReturn parseResult（依順序排列的 blocks：textBlock / imageBlock）
 
 note over Engine
-Phase 1 的圖片處理：
-- 會在 Phase 1 提取圖片並寫出獨立圖片檔（outputDir/images/<uuid>.png|jpg）
-- parse_result.json 會記錄每個 block：
-  - blockIndex：順序（最終 Markdown 以此上下順序呈現）
-  - type=text：文字內容
-  - type=image：imageRef（例如：xref）+ imagePath
+Phase 1 處理流程：
+1. 渲染每頁為完整 PNG 圖片
+2. 提取每頁的嵌入圖片
+3. 文字區塊不處理
 end note
 
-loop 依 blockIndex 順序處理 blocks
-  alt imageBlock
-    Engine -> PDF: extractImage(imageRef)\n（回傳二進位資料 + 元資料）
-    PDF --> Engine: imageBytes + imageMeta
-    Engine -> FS: 寫入檔案\n(outputDir/images/<uuid>.png|jpg)
-    FS --> Engine: imagePath（基於 UUID）
-    Engine -> Engine: updateParseResultImagePath(parseResult, blockIndex, imagePath)
-  else textBlock
-    Engine -> Engine: keepTextBlock(parseResult, blockIndex)
-  end
+loop 依頁面順序處理（page_index 從 0 開始）
+  Engine -> PDF: renderPageAsImage(page)\n渲染整頁為 PNG
+  PDF --> Engine: imageBytes + imageMeta
+  Engine -> FS: 寫入頁面圖片\n(outputDir/images/page_<page_index:04d>.png)\n使用 0-based page_index 作為檔名後綴
+  FS --> Engine: pageImagePath（相對 outputDir，例如 images/page_0000.png）
+  Engine -> Engine: 記錄頁面圖片資訊（page_index、imagePath、width、height）
 end
 
-Engine -> FS: 寫入 PDF 解析產出\n(outputDir/parsed/parse_result.json)
-FS --> Engine: parseOutputPath
+note over FS
+實作注意：
+- 頁面圖片檔名固定為 page_<page_index:04d>.png
+- overwrite=false 時，若檔案已存在仍會被覆寫（未額外產生新檔名）
+end note
+
+Engine -> PDF: parsePdf(doc)\nReturn embeddedImageBlocks（只提取嵌入圖片，不處理文字區塊）\n排序規則：page_index → bbox.y → bbox.x
+
+loop 依 blockIndex 順序處理嵌入圖片 blocks
+  Engine -> PDF: extractImage(xref)\n（回傳二進位資料 + 元資料）
+  PDF --> Engine: imageBytes + imageMeta
+  Engine -> FS: 寫入檔案\n(outputDir/images/<uuid>.png|jpg)
+  FS --> Engine: imagePath（基於 UUID）
+  Engine -> Engine: 更新 block 的 imagePath、ext、width、height
+end
+
+Engine -> Engine: 合併 pageImageBlocks + embeddedImageBlocks\n依規則重新排序並重算 blockIndex
+
+note over Engine
+parse_result.json 結構：
+- Run-level metadata：schema_version、created_at、source_pdf、total_pages
+- blocks 包含兩種類型：
+  - type=page_image：頁面圖片（page_index、imagePath、ext、width、height）
+  - type=image：嵌入圖片（page_index、bbox、xref、imagePath、ext、width、height）
+- blockIndex：排序後的順序（頁面圖片優先，然後是嵌入圖片）
+end note
+
+alt overwrite=true
+  Engine -> FS: 寫入 PDF 解析產出\n(outputDir/parsed/parse_result.json)\n覆蓋既有檔案
+  FS --> Engine: parseOutputPath
+else overwrite=false
+  Engine -> FS: 寫入 PDF 解析產出\n(outputDir/parsed/parse_result_<timestamp>.json)\n使用時間戳避免檔名衝突
+  FS --> Engine: parseOutputPath
+end
 
 Engine --> CLI: printParseOutputPath(parseOutputPath)
 CLI --> User: 顯示 parseOutputPath\n提示先檢查解析結果
 
+opt 未提供 --from-parse（目前不會自動進入 Phase 2）
+  CLI --> User: 顯示提示：Phase 1 已完成\n如需進入 Phase 2，請使用 --from-parse 指定解析產出
+end
+
 == Phase 2：以解析產出作為輸入，轉換 Markdown（含圖片） ==
 
-User -> CLI: 確認繼續 / 再次執行第二階段\n（例如：--from-parse outputs/parsed/parse_result.json）
-CLI -> Engine: convertToMarkdown(parseInputPath, outputDir, model)
+User -> CLI: 再次執行第二階段\n（例如：--from-parse output/parsed/parse_result_<timestamp>.json）
+CLI -> Engine: convertToMarkdown(parseInputPath, outputDir, model, promptFile)\n解析模型參數（優先序：--model > GEMINI_MODEL > 預設值）
 
 Engine -> FS: 讀取解析產出\n(parseInputPath)
 FS --> Engine: parseResult
+Engine -> FS: 讀取提示詞模板\n(promptFile)
+FS --> Engine: promptTemplateMd
+Engine -> Engine: 驗證 schema_version 相容性
+alt schema_version 不支援
+  Engine --> CLI: raise ValueError（Unsupported schema version）
+  CLI --> User: 顯示錯誤並結束（目前未特別攔截 ValueError）
+else schema_version 相容
+  Engine -> Engine: 驗證 blockIndex 順序完整性
+  alt blockIndex 不完整或不連續
+    Engine --> CLI: raise ValueError（Block index order is invalid or incomplete）
+    CLI --> User: 顯示錯誤並結束（目前未特別攔截 ValueError）
+  else 驗證通過
+    Engine -> Engine: 依 page_index 分組（page_image + embedded images）\n組合 pageParseDict（該頁原始 JSON）
+    Engine -> FS: 建立/讀取 Phase 2 狀態\n(outputDir/phase2/state.json)\n並以磁碟上的 per-page md 作為快取來源
+    note over Engine
+    Phase 2 續跑識別（identity）包含：
+    - parse_input_path + 檔案指紋（size/mtime）
+    - prompt_file + prompt_sha256
+    - model、total_pages、schema_version
+    但即使 identity 改變，只要 outputDir/phase2/pages/page_*.md 存在仍會被直接使用（磁碟是事實來源）。
+    end note
 
-loop 依 blockIndex 順序處理 blocks
-  alt textBlock
-    Engine -> AI: generateMarkdown(text, model)
-    AI --> Engine: mdChunk（文字 Markdown）
-    Engine -> Engine: appendMarkdown(mdChunk)
-  else imageBlock
-    Engine -> Engine: renderImageMarkdown(imagePath)\n（imagePath 來自 parse_result.json）
-    Engine -> Engine: appendMarkdown(imageMd)
+    loop 依 page_index 順序處理每頁（並行處理：從 .env 取得 GEMINI_CONCURRENCY，預設 10）
+      Engine -> FS: 檢查 per-page 快取\n(outputDir/phase2/pages/page_<page_index:04d>.md)
+      alt 快取命中（檔案已存在）
+        FS --> Engine: pageMd（讀取既有 per-page Markdown）
+      else 快取未命中
+        Engine -> AI: generatePageMarkdown(promptTemplateMd + 附加 JSON, pageImage)\n（multimodal：文字 + 本頁截圖）
+        alt 觸發 RECITATION
+          Engine -> AI: generatePageMarkdown(安全模式提示詞, pageImage)\n（重試一次）
+        end
+        AI --> Engine: pageMd（該頁 Markdown）
+        Engine -> FS: 寫入 per-page Markdown\n(outputDir/phase2/pages/page_<page_index:04d>.md)
+        Engine -> FS: 更新 state.json\n(outputDir/phase2/state.json)
+      end
+      Engine -> Engine: 收集 pageMd
+    end
+
+    Engine -> Engine: 依 page_index 排序合併所有 pageMd
+
+    Engine -> FS: 寫入 Markdown 輸出\n(outputDir/output_<timestamp>.md)
+    FS --> Engine: outputMdPath
+    Engine --> CLI: return outputMdPath
+    CLI --> User: 顯示完成訊息與輸出路徑\nexit 0
   end
 end
 
-Engine -> FS: 寫入 Markdown 檔案\n(outputDir/output.md)
-FS --> Engine: 完成
-
-Engine --> CLI: exit 0 + 輸出路徑\n(outputDir/output.md, outputDir/images/, outputDir/logs/)
-CLI --> User: 顯示成功訊息
-
 note over FS
 產出檔案：
-- outputDir/output.md
-- outputDir/parsed/parse_result.json
-- outputDir/images/（檔名為 UUID）
-- outputDir/logs/
+- outputDir/output_<timestamp>.md（時間戳格式：YYYYMMDD_HHMMSS）
+- outputDir/parsed/parse_result.json 或 parse_result_<timestamp>.json（時間戳格式：YYYYMMDD_HHMMSS）
+- outputDir/images/page_<page_index:04d>.png（頁面圖片，使用 0-based page_index 作為後綴）
+- outputDir/images/<uuid>.png|jpg（嵌入圖片，UUID 格式）
+- outputDir/phase2/pages/page_<page_index:04d>.md（Phase 2 per-page Markdown；續跑快取）
+- outputDir/phase2/state.json（Phase 2 狀態；identity + completed_pages）
+- outputDir/logs/（預留，尚未產生 log 檔）
+- 使用 --overwrite 參數可覆蓋現有檔案
 end note
 
 @enduml

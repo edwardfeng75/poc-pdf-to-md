@@ -1,0 +1,77 @@
+@startuml uc_pdf_to_md_main
+
+' 顏色配置
+!$BGCOLOR = "#C7B6B6FF"
+!$FONTCOLOR = "#000000"
+!$SUCCESSCOLOR = "#50FA7B"
+!$NORMALCOLOR = "#FFFFFF"
+!$NOTECOLOR = "#FFFACD"
+!$NOTEFONTCOLOR = "#000000"
+!$PRIMARYCOLOR = "#3B82F6"
+!$SECONDARYCOLOR = "#10B981" 
+!$WARNINGCOLOR = "#F59E0B"
+!$DANGERCOLOR = "#EF4444"
+!$LIGHTGRAY = "#F3F4F6"
+!$AUTHCOLOR = "#8B5CF6"
+
+skinparam backgroundColor $BGCOLOR
+skinparam defaultFontColor $FONTCOLOR
+skinparam usecaseBackgroundColor $NORMALCOLOR
+skinparam usecaseBorderColor $FONTCOLOR
+skinparam usecaseArrowColor $FONTCOLOR
+skinparam actorBackgroundColor $NORMALCOLOR
+skinparam actorBorderColor $FONTCOLOR
+skinparam noteBackgroundColor $NOTECOLOR
+skinparam noteBorderColor $FONTCOLOR
+
+left to right direction
+
+actor "使用者" as User
+
+package "PDF 轉 Markdown 工具" {
+    
+    usecase "UC-1\n執行 PDF 解析 (Phase 1)" as UC_1
+    usecase "UC-1.1\n提取頁面圖片" as UC_1_1
+    usecase "UC-1.2\n提取嵌入圖片" as UC_1_2
+    usecase "UC-1.3\n產生解析結果 JSON" as UC_1_3
+    
+    usecase "UC-2\n執行 Markdown 轉換 (Phase 2)" as UC_2
+    usecase "UC-2.1\n載入並驗證解析結果" as UC_2_1
+    usecase "UC-2.2\nAI 生成頁面內容" as UC_2_2
+    usecase "UC-2.2.1\n重試安全模式 (Recitation)" as UC_2_2_1
+    usecase "UC-2.3\n組合最終 Markdown" as UC_2_3
+    usecase "UC-2.4\n管理續跑與快取" as UC_2_4
+
+    usecase "UC-3\n配置轉換參數" as UC_3
+}
+
+' Relations
+User --> UC_1
+User --> UC_2
+User --> UC_3
+
+UC_1 ..> UC_1_1 : include
+UC_1 ..> UC_1_2 : include
+UC_1 ..> UC_1_3 : include
+
+UC_2 ..> UC_2_1 : include
+UC_2 ..> UC_2_2 : include
+UC_2 ..> UC_2_3 : include
+UC_2 ..> UC_2_4 : include
+
+UC_2_2 <.. UC_2_2_1 : extend
+
+' Notes
+note "UC-1\n\n--\n使用者提供 PDF 路徑\n輸出 parsed JSON 與 images" as N1
+UC_1 .. N1
+
+note "UC-2\n\n--\n使用 Phase 1 的輸出\n搭配 AI 模型轉換為 Markdown" as N2
+UC_2 .. N2
+
+note "UC-2.4\n\n--\n檢查 page md 是否已存在\n若存在則跳過 AI 呼叫" as N3
+UC_2_4 .. N3
+
+note "UC-2.2.1\n\n--\n當 AI 拒絕生成 (Recitation)\n自動切換提示詞重試" as N4
+UC_2_2_1 .. N4
+
+@enduml
