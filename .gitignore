@@ -9,6 +9,7 @@ output*
 .roo
 test_data/*
 !test_data/placeholder.md
+.reference/*
 
 # Python caches / bytecode
 __pycache__/

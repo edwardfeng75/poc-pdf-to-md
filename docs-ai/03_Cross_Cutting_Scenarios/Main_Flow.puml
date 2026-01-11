@@ -1,4 +1,4 @@
-@startuml pdf-to-md-with-images-seq
+@startuml Main_Flow
 
 actor User
 participant "CLI" as CLI

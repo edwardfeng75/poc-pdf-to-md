@@ -1,4 +1,4 @@
-@startuml uc_pdf_to_md_main
+@startuml Use_Case_Diagram
 
 ' 顏色配置
 !$BGCOLOR = "#C7B6B6FF"
@@ -40,7 +40,7 @@ package "PDF 轉 Markdown 工具" {
     usecase "UC-2.2\nAI 生成頁面內容" as UC_2_2
     usecase "UC-2.2.1\n重試安全模式 (Recitation)" as UC_2_2_1
     usecase "UC-2.3\n組合最終 Markdown" as UC_2_3
-    usecase "UC-2.4\n管理續跑與快取" as UC_2_4
+    usecase "UC-2.4\n管理續跑與快取" as UC_2_4 
 
     usecase "UC-3\n配置轉換參數" as UC_3
 }
