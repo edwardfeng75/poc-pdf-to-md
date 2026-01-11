@@ -10,6 +10,8 @@
 - **圖片提取**：自動提取 PDF 中的圖片並儲存為獨立檔案
 - **字體大小檢測**：自動檢測文字的字體大小，用於未來 Markdown 標題等級（h1-h5）判斷
 - **AI 轉換**：使用 Gemini AI 將文字內容轉換為 Markdown 格式
+- **Thinking Mode**：支援 Gemini 模型的思考功能（需透過環境變數啟用），提升複雜內容的解析能力
+- **自動重試機制**：當模型拒絕生成（Recitation Error）時，自動切換至安全模式重試，確保產出率
 - **兩階段處理**：先解析 PDF 產生中間產出，再進行 Markdown 轉換，確保品質
 - **完整測試**：包含單元測試、整合測試與端對端測試
 
@@ -71,6 +73,7 @@ cp .env.example .env
 GEMINI_API_KEY=your_api_key_here
 GEMINI_MODEL=gemini-3-pro-preview
 GEMINI_CONCURRENCY=10 # 選填：設定 Phase 2 的並發數（預設：10）
+GEMINI_ENABLE_THINKING=true # 選填：啟用 Thinking Mode（預設：False，適用於支援思考的模型）
 ```
 
 **注意**：Phase 1（PDF 解析）不需要 API 金鑰，只有 Phase 2（Markdown 轉換）才需要。

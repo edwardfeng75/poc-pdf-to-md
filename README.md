@@ -2,7 +2,16 @@
 
 [中文說明](README_zhtw.md)
 
-A PDF to Markdown tool with image extraction and (future) AI-assisted conversion. It uses PyMuPDF for PDF parsing and is designed as a two-phase pipeline to keep outputs inspectable and reproducible.
+A PDF to Markdown tool with image extraction and AI-assisted conversion. It uses PyMuPDF for PDF parsing and is designed as a two-phase pipeline to keep outputs inspectable and reproducible.
+
+## Features
+
+- **PDF Parsing**: Extract text and images using PyMuPDF
+- **Image Extraction**: Automatically extract and save images
+- **AI Conversion**: Convert text to Markdown using Gemini AI
+- **Thinking Mode**: Support for Gemini's thinking capability (via env var) for better reasoning on complex content
+- **Auto-Retry**: Automatically fallback to safe mode on Recitation Error to ensure high success rate
+- **Two-Phase Pipeline**: Separate parsing and conversion for quality assurance
 
 ## Project Status
 
@@ -34,6 +43,7 @@ cp .env.example .env
 GEMINI_API_KEY=your_api_key_here
 GEMINI_MODEL=gemini-3-pro-preview
 GEMINI_CONCURRENCY=10 # Optional: Phase 2 concurrency (default: 10)
+GEMINI_ENABLE_THINKING=true # Optional: Enable Thinking Mode (default: False, for models that support it)
 ```
 
 ## Usage (uv)
