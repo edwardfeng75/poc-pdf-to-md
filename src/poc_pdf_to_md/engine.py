@@ -418,6 +418,7 @@ def _process_single_page(
     model: str,
     prompt_template_md: str,
     progress: _ProgressPrinter,
+    thinking_enabled: bool = False,
 ) -> str:
     """Process a single page: cache check -> generate -> save."""
     page_no = idx + 1
@@ -484,6 +485,7 @@ def _process_single_page(
                 prompt_text=prompt_text,
                 page_image_path=page["page_image_abs"],
                 model=model,
+                thinking_enabled=thinking_enabled,
             )
             dt_gemini = time.monotonic() - t_gemini
         except Exception as e:  # pylint: disable=broad-exception-caught
@@ -504,6 +506,7 @@ def _process_single_page(
                     prompt_text=safe_prompt_text,
                     page_image_path=page["page_image_abs"],
                     model=model,
+                    thinking_enabled=thinking_enabled,
                 )
                 dt_gemini_retry = time.monotonic() - t_retry
             else:
@@ -566,7 +569,7 @@ def _process_single_page(
 
 
 def convert_to_markdown(
-    parse_input_path: str, output_dir: Path, model: str, prompt_file: str
+    parse_input_path: str, output_dir: Path, model: str, prompt_file: str, thinking_enabled: bool = False
 ) -> Path:
     """
     Phase 2: Convert parse result to Markdown.
@@ -647,6 +650,7 @@ def convert_to_markdown(
                 model=model,
                 prompt_template_md=prompt_template_md,
                 progress=progress,
+                thinking_enabled=thinking_enabled,
             ): idx
             for idx, page in enumerate(pages)
         }

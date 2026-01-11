@@ -10,6 +10,8 @@ from pathlib import Path
 from typing import Any, Dict
 
 from dotenv import load_dotenv
+from google import genai  # type: ignore[import-not-found]
+from google.genai import types  # type: ignore[import-not-found]
 
 
 def _get_api_key() -> str:
@@ -62,6 +64,7 @@ def generate_page_markdown(
     page_image_path: Path,
     model: str,
     generation_config: Dict[str, Any] | None = None,
+    thinking_enabled: bool = False,
 ) -> str:
     """Generate Markdown for a single page using Gemini (multimodal).
 
@@ -70,6 +73,7 @@ def generate_page_markdown(
         page_image_path: Absolute path to the page PNG.
         model: Gemini model name.
         generation_config: Optional model generation config.
+        thinking_enabled: Whether to enable thinking mode (include_thoughts).
     """
     api_key = _get_api_key()
     if not api_key:
@@ -78,17 +82,29 @@ def generate_page_markdown(
         )
 
     # Use the new SDK: google-genai (import path: google.genai).
-    from google import genai  # type: ignore[import-not-found]
-    from google.genai import types  # type: ignore[import-not-found]
-
     client = genai.Client(api_key=api_key)
 
     image_bytes = page_image_path.read_bytes()
     image_part = types.Part.from_bytes(data=image_bytes, mime_type="image/png")
 
     kwargs: Dict[str, Any] = {}
-    if generation_config is not None:
-        kwargs["config"] = generation_config
+    
+    # Prepare config
+    final_config = generation_config.copy() if generation_config else {}
+    
+    # Configure thinking mode
+    if "thinking_config" not in final_config:
+        if thinking_enabled:
+            # Enable thinking config
+            # Note: This requires the model to support thinking (e.g. gemini-2.0-flash-thinking-exp)
+            final_config["thinking_config"] = {"include_thoughts": True}
+        else:
+            # Explicitly disable thinking to prevent accidental thinking on supported models
+            # According to docs, thinking_budget=0 disables thinking.
+            final_config["thinking_config"] = {"thinking_budget": 0}
+
+    if final_config:
+        kwargs["config"] = final_config
 
     resp = client.models.generate_content(
         model=model,
@@ -106,4 +122,3 @@ def generate_page_markdown(
         "Gemini returned an empty response (missing response.text). "
         f"Diagnostics: {summary}"
     )
-

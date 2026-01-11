@@ -5,7 +5,12 @@ import os
 import sys
 from pathlib import Path
 
+from dotenv import load_dotenv
+
 from .engine import phase1_parse_pdf, convert_to_markdown
+
+# Load environment variables from .env file
+load_dotenv()
 
 
 def parse_args() -> argparse.Namespace:
@@ -112,6 +117,12 @@ def get_model_name(args: argparse.Namespace) -> str:
     return "gemini-3-pro-preview"
 
 
+def get_thinking_enabled() -> bool:
+    """Get thinking mode status from GEMINI_ENABLE_THINKING env (default: False)."""
+    val = os.getenv("GEMINI_ENABLE_THINKING", "False").lower()
+    return val in ("true", "1", "yes", "on")
+
+
 def print_parse_output_path(parse_output_path: str) -> None:
     """Print parse output path to user."""
     print(f"Parse output saved to: {parse_output_path}")
@@ -139,7 +150,7 @@ def main() -> None:
     if args.overwrite:
         # Clear existing output directories
         import shutil
-        for subdir in ["parsed", "images", "logs"]:
+        for subdir in ["parsed", "images", "logs", "phase2"]:
             subdir_path = output_dir / subdir
             if subdir_path.exists():
                 shutil.rmtree(subdir_path)
@@ -156,9 +167,18 @@ def main() -> None:
     elif args.from_parse:
         # Phase 2: Convert from parse result
         model = get_model_name(args)
+        thinking_enabled = get_thinking_enabled()
+        
+        if thinking_enabled:
+            print(f"Info: Thinking mode enabled (GEMINI_ENABLE_THINKING=True)")
+            
         try:
             output_md_path = convert_to_markdown(
-                args.from_parse, output_dir, model, args.prompt_file
+                args.from_parse,
+                output_dir,
+                model,
+                args.prompt_file,
+                thinking_enabled=thinking_enabled,
             )
             print_success_message(
                 str(output_md_path),

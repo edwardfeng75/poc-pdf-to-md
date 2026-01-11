@@ -74,6 +74,24 @@ uv run poc-pdf-to-md --from-parse <path-to-parse_result.json>
 | `--prompt-file <path>` | Prompt template markdown file for Phase 2 | No | `prompts/phase2_page_to_md.md` |
 | `--overwrite` | Overwrite existing output files (clears `parsed/`, `images/`, `logs/`, and `output_*.md`) | No | `false` |
 
+## Output Structure
+
+The tool generates the following structure in the output directory:
+
+```
+output/
+├── parsed/
+│   └── parse_result_<timestamp>.json  # Parse result JSON
+├── images/
+│   ├── page_0000.png                  # Page renders
+│   └── <uuid>.png                     # Extracted images
+├── phase2/
+│   ├── pages/                         # Intermediate Markdown per page
+│   │   └── page_0000.md
+│   └── state.json                     # Resume state file
+└── output_<timestamp>.md              # Final combined Markdown file
+```
+
 ## Running tests
 
 ```bash

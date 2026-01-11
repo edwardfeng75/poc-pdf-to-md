@@ -139,8 +139,8 @@ output/
 ├── parsed/
 │   └── parse_result_<timestamp>.json  # 解析結果 JSON
 ├── images/
-│   ├── <uuid>.png                     # 提取的圖片檔案
-│   └── <uuid>.jpg
+│   ├── page_0000.png                  # 頁面截圖
+│   └── <uuid>.png                     # 提取的圖片檔案
 ├── phase2/
 │   ├── pages/                         # 每頁的中間產出 Markdown
 │   │   └── page_0000.md
